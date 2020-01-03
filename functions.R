@@ -8,85 +8,112 @@ readcleanrawdata = function(rawpath = "ebd_IN_relMay-2019.txt", KL = F, klpath =
   require(lubridate)
   require(tidyverse)
   
-  #library(auk)
-  
-  #allin = system.file("extdata/ebd_IN_relAug-2018.txt", package = "auk")
-  
-  #allout = tempfile()
-  #auk_clean(allin,allout, sep = "\t", remove_text = FALSE)
-  
-  #all = allout %>%
-  #  read_ebd()
-  
-  preimp = c("CATEGORY","COMMON.NAME","OBSERVATION.COUNT",
-             "LOCALITY.ID","LOCALITY.TYPE",
+  # select only necessary columns
+  preimp = c("CATEGORY","COMMON.NAME","SCIENTIFIC.NAME","OBSERVATION.COUNT",
+             "LOCALITY.ID","LOCALITY.TYPE","REVIEWED","APPROVED","STATE","COUNTY",
              "LATITUDE","LONGITUDE","OBSERVATION.DATE","TIME.OBSERVATIONS.STARTED","OBSERVER.ID",
              "PROTOCOL.TYPE","DURATION.MINUTES","EFFORT.DISTANCE.KM",
-             "NUMBER.OBSERVERS","ALL.SPECIES.REPORTED","GROUP.IDENTIFIER","SAMPLING.EVENT.IDENTIFIER","APPROVED","CATEGORY")
+             "NUMBER.OBSERVERS","ALL.SPECIES.REPORTED","GROUP.IDENTIFIER","SAMPLING.EVENT.IDENTIFIER")
   
-  nms = read.delim(rawpath, nrows = 1, sep = "\t", header = T, quote = "", stringsAsFactors = F, na.strings = c(""," ",NA))
+  # CATEGORY - species, subspecies, hybrid, etc.; COMMON.NAME - common name of species;
+  # SCIENTIFIC NAME - scientific name; OBSERVATION.COUNT - count of each species observed in a list;
+  # LOCALITY.ID - unique location ID; LOCALITY.TYPE - hotspot, etc.;
+  # LATITUDE and LONGITUDE - coordinates; OBSERVATION.DATE - checklist date; 
+  # TIME.OBSERVATIONS.STARTED - checklist start time; OBSERVER ID - unique observer ID;
+  # PROTOCOL TYPE - stationary, traveling, historical, etc.; DURATION.MINUTES - checklist duration;
+  # EFFORT.DISTANCE.KM - distance traveled; NUMBER.OBSERVERS - no. of birders;
+  # ALL.SPECIES.REPORTED - indicates whether a checklist is complete or not;
+  # GROUP.IDENTIFIER - unique ID for every set of shared checklists (NA when not shared);
+  # SAMPLING.EVENT.IDENTIFIER - unique checlist ID
+  
+  nms = read.delim(rawpath, nrows = 1, sep = "\t", header = T, quote = "", stringsAsFactors = F, 
+                   na.strings = c(""," ",NA))
   nms = names(nms)
   nms[!(nms %in% preimp)] = "NULL"
   nms[nms %in% preimp] = NA
   
-  data = read.delim(rawpath, colClasses = nms, sep = "\t", header = T, quote = "", stringsAsFactors = F, na.strings = c(""," ",NA))
+  # read data from certain columns only
+  data = read.delim(rawpath, colClasses = nms, sep = "\t", header = T, quote = "", 
+                    stringsAsFactors = F, na.strings = c(""," ",NA))
   
-  ## choosing important variables
+  # read sensitive species data
+  nms = nms[-47]
+  sesp = read.csv(sensitivepath, colClasses = nms, stringsAsFactors = F)
+  stdformat = data.frame(date = as.character(sesp$OBSERVATION.DATE))
+  stdformat = stdformat %>%
+    separate(date, c("month","day","year"), "/")
+  stdformat$year = as.numeric(stdformat$year)
+  sesp$OBSERVATION.DATE = paste(stdformat$year,"-",stdformat$month,"-",stdformat$day, sep = "")
+  sesp = sesp %>% mutate(GROUP.IDENTIFIER = ifelse(GROUP.IDENTIFIER == "", NA, GROUP.IDENTIFIER))
+  
+  # merge both data frames
+  data = rbind(data,sesp)
+  
+  data = data %>%
+    filter(!COMMON.NAME %in% c("Western Orphean Warbler"),
+           (!COMMON.NAME %in% c("Jungle Prinia") | !STATE %in% c("Uttarakhand","Jammu and Kashmir",
+                                                                 "Chandigarh","Punjab",
+                                                                 "Himachal Pradesh") | 
+              COUNTY %in% c("Hardwar")),
+           (!COMMON.NAME %in% c("Orange Minivet") | !STATE %in% c("Gujarat") | 
+              COUNTY %in% c("Narmada","Navsari","The Dangs")),
+           (!COMMON.NAME %in% c("Red-breasted Flycatcher") | !STATE %in% c("West Bengal")),
+           (!COMMON.NAME %in% c("Brown-cheeked Fulvetta") | !STATE %in% c("Sikkim")),
+           (!COMMON.NAME %in% c("Chestnut-shouldered Petronia") | !COUNTY %in% 
+              c("Darjiling","Jalpaiguri")),
+           (!COMMON.NAME %in% c("Indian Robin") | 
+              (!STATE %in% c("Arunachal Pradesh","Mizoram","Manipur",
+                             "Sikkim","Nagaland","Tripura",
+                             "Assam") & 
+                 !COUNTY %in% c("Darjiling","Jalpaiguri","Koch Bihar"))),
+           (!COMMON.NAME %in% c("Brown-capped Woodpecker") | 
+              (!STATE %in% c("Arunachal Pradesh","Mizoram","Manipur",
+                             "Sikkim","Nagaland","Tripura",
+                             "Assam","Jammu and Kashmir") & 
+                 !COUNTY %in% c("Darjiling","Jalpaiguri","Koch Bihar","Dehradun","Almora","Shimla",
+                                "Mandi","Kangra","Chamba","Kullu"))),
+           (!COMMON.NAME %in% c("Rusty-throated Wren-Babbler") | !STATE %in% c("Manipur","Mizoram",
+                                                                               "Nagaland")),
+           (!COMMON.NAME %in% c("Gray Sibia") | !STATE %in% c("Arunachal Pradesh")),
+           (!COMMON.NAME %in% c("Indian Silverbill") | 
+              (!STATE %in% c("Arunachal Pradesh","Mizoram","Manipur",
+                             "Sikkim","Nagaland","Tripura",
+                             "Assam") & 
+                 !COUNTY %in% c("Darjiling","Jalpaiguri","Koch Bihar"))))
+  
+  
+  # create and write a file with common names and scientific names of all Indian species
+  # useful for mapping
+  temp = data %>%
+    filter(REVIEWED == 0 | APPROVED == 1) %>%
+    filter(CATEGORY == "species" | CATEGORY == "issf") %>%
+    distinct(COMMON.NAME,SCIENTIFIC.NAME)
+  
+  write.csv(temp,"indiaspecieslist.csv", row.names=FALSE)
   
   imp = c("CATEGORY","COMMON.NAME","OBSERVATION.COUNT",
-          #"LOCALITY.ID","LOCALITY.TYPE",
+          "LOCALITY.ID", "REVIEWED","APPROVED",
+          #"LOCALITY.TYPE",
           "LATITUDE","LONGITUDE","OBSERVATION.DATE","TIME.OBSERVATIONS.STARTED","OBSERVER.ID",
           "PROTOCOL.TYPE",
           "DURATION.MINUTES","EFFORT.DISTANCE.KM",
           "ALL.SPECIES.REPORTED","group.id")
   
-  imp1 = c("CATEGORY","COMMON.NAME","OBSERVATION.COUNT",
-          "LOCALITY.ID","LOCALITY.TYPE",
-          "LATITUDE","LONGITUDE","OBSERVATION.DATE","TIME.OBSERVATIONS.STARTED","OBSERVER.ID",
-          "PROTOCOL.TYPE",
-          "DURATION.MINUTES","EFFORT.DISTANCE.KM",
-          "ALL.SPECIES.REPORTED","group.id")
   
+  # no of days in every month, and cumulative number
   days = c(31,28,31,30,31,30,31,31,30,31,30,31)
   cdays = c(0,31,59,90,120,151,181,212,243,273,304,334)
   
+  # create a column "group.id" which can help remove duplicate checklists
   data = data %>%
-    filter(APPROVED == 1) %>%
     mutate(group.id = ifelse(is.na(GROUP.IDENTIFIER), SAMPLING.EVENT.IDENTIFIER, GROUP.IDENTIFIER))
   
   ## setup eBird data ##
   
-  ## filter approved observations, species, slice by single group ID, remove repetitions
-  ## remove repeats
+  ## filter species, slice by single group ID, remove repetitions
+  ## remove repeats by retaining only a single group.id + species combination
   ## set date, add month, year and day columns using package LUBRIDATE
-  ## add number of species column (no.sp)
-  
-  if (isTRUE(KL))
-  {
-    imp = imp1
-    
-    kllists = read.csv(klpath)
-    data1 = data %>%
-      filter(SAMPLING.EVENT.IDENTIFIER %in% kllists$SAMPLING.EVENT.IDENTIFIER)
-    
-    data1 = data1 %>%
-      group_by(group.id,COMMON.NAME) %>% slice(1) %>% ungroup %>%
-      dplyr::select(imp) %>%
-      mutate(OBSERVATION.DATE = as.Date(OBSERVATION.DATE), 
-             month = month(OBSERVATION.DATE),
-             day = day(OBSERVATION.DATE) + cdays[month], 
-             #week = week(OBSERVATION.DATE),
-             #fort = ceiling(day/14),
-             cyear = year(OBSERVATION.DATE)) %>%
-      dplyr::select(-c("OBSERVATION.DATE")) %>%
-      mutate(year = ifelse(day <= 151, cyear-1, cyear)) %>%
-      group_by(group.id) %>% mutate(no.sp = n_distinct(COMMON.NAME)) %>%
-      ungroup
-    
-    data = data %>%
-      filter(!group.id %in% unique(data1$group.id))
-    
-  }
+  ## add number of species/list length column (no.sp), for list length analyses (lla)
   
   
   data = data %>%
@@ -103,50 +130,112 @@ readcleanrawdata = function(rawpath = "ebd_IN_relMay-2019.txt", KL = F, klpath =
     group_by(group.id) %>% mutate(no.sp = n_distinct(COMMON.NAME)) %>%
     ungroup
   
-  if(!isTRUE(KL))
-  {
-    assign("data",data,.GlobalEnv)
-    
-    rm(list=setdiff(ls(envir = .GlobalEnv), c("data")), pos = ".GlobalEnv")
-    
-    temp = data %>%
-      group_by(COMMON.NAME) %>% slice(1) %>% ungroup()
-    
-    write.csv(temp,"indiaspecieslist.csv")
-    
-    save.image("data.RData")
-  }
+  data = data %>% filter(year < 2019)
   
-  if(KL)
-  {
-    assign("KLatlas",data1,.GlobalEnv)
-    assign("KLnonatlas",data,.GlobalEnv)
-    
-    rm(list=setdiff(ls(envir = .GlobalEnv), c("KLatlas","KLnonatlas")), pos = ".GlobalEnv")
-    
-    save.image("KL.RData")  
-  }
+  ## remove probable mistakes
+  
+  data = data %>%
+    filter(!group.id %in% c("S52427664","S52427820","S56787688","S52402064","S53042612",
+                            "S33740440"),
+           !COMMON.NAME == "Nilgiri Pipit" | !group.id %in% c("S29668163","S29668256"),
+           !COMMON.NAME == "Ashambu Laughingthrush" | !group.id %in% c("S56229913","S56933026"),
+           !COMMON.NAME == "Asian Barred Owlet" | !group.id %in% c("G2041445"),
+           !COMMON.NAME == "Blue-eared Kingfisher" | !group.id %in% c("S32961812"),
+           !COMMON.NAME == "Blue-capped Redstart" | !group.id %in% c("S53495281"),
+           !COMMON.NAME == "Painted Bush-Quail" | !group.id %in% c("S27051065"),
+           !COMMON.NAME == "Blue-fronted Redstart" | !group.id %in% c("S21233304"),
+           !COMMON.NAME == "Brown Hornbill" | !group.id %in% c("S43551831"),
+           !COMMON.NAME == "Common Hill Myna" | !group.id %in% c("S52357374","S53043299",
+                                                                 "G3013891","S42764844",
+                                                                 "S46360523","S27918190"),
+           !COMMON.NAME == "Brown-cheeked Fulvetta" | !group.id %in% c("S44659529","S40566180",
+                                                                       "G3974238"),
+           !COMMON.NAME == "Common Raven" | !group.id %in% c("G2347843","S34953487","S49490692"),
+           !COMMON.NAME == "Crimson-backed Sunbird" | !group.id %in% c("G2337363","S41299024","S42586621",
+                                                                       "S44235135","S55677832"),
+           !COMMON.NAME == "Fire-tailed Myzornis" | !group.id %in% c("S42743967"),
+           !COMMON.NAME == "Flame-throated Bulbul" | !group.id %in% c("S46388374"),
+           !COMMON.NAME == "Golden-fronted Leafbird" | !group.id %in% c("S51010614","S20859862",
+                                                                        "S35527622","S40801323",
+                                                                        "S52222471","S42293210",
+                                                                        "S42565278","G2925840",
+                                                                        "G2925839"),
+           !COMMON.NAME == "Greater Adjutant" | !group.id %in% c("S42194637","S34314503"),
+           !COMMON.NAME == "Jungle Owlet" | !group.id %in% c("S29235308","S27617824",
+                                                             "S32956267","S40541020",
+                                                             "S56307563","S56320053",
+                                                             "S56321414","S56345734",
+                                                             "G2353309","S22537736",
+                                                             "S56129491","S50441851",
+                                                             "S50442387","G1486831",
+                                                             "S32601844"),
+           !COMMON.NAME == "Large Woodshrike" | !group.id %in% c("G2907799","S23455075"),
+           !COMMON.NAME == "Lesser Racket-tailed Drongo" | !group.id %in% c("S49094276"),
+           !COMMON.NAME == "Long-billed Sunbird" | !group.id %in% c("S54163831","S52859270"),
+           !COMMON.NAME == "Malabar Gray Hornbill" | !group.id %in% c("S40060028"),
+           !COMMON.NAME == "Gray Sibia" | !group.id %in% c("S29321497"),
+           !COMMON.NAME == "Nicobar Imperial-Pigeon" | !group.id %in% c("G3671404","S30505431",
+                                                                        "S32591199","S34756528",
+                                                                        "S34773949","S34779113",
+                                                                        "S24322442"),
+           !COMMON.NAME == "Nicobar Parakeet" | !group.id %in% c("S56338976","S55428987",
+                                                                 "S50021690","S42333230"),
+           !COMMON.NAME == "Nilgiri Sholakili" | !group.id %in% c("G2809524"),
+           !COMMON.NAME == "Palani Laughingthrush" | !group.id %in% c("S37500763","S31503751",
+                                                                      "G1050022","S26314587",
+                                                                      "G3893563"),
+           !COMMON.NAME == "Green Imperial-Pigeon" | !group.id %in% c("S42404810","S54172419",
+                                                                      "S54171884","S19503596"),
+           !COMMON.NAME == "Rufous-fronted Prinia" | !group.id %in% c("S40763806","S36754186",
+                                                                      "S33722312","S47874534",
+                                                                      "S55205625","S26234020",
+                                                                      "S47854569","S47903089",
+                                                                      "S42242712","S22225425",
+                                                                      "S44388179","G1261451",
+                                                                      "S47862934","S46497353",
+                                                                      "S47901972","S45790541"),
+           !COMMON.NAME == "Scaly Laughingthrush" | !group.id %in% c("S34973616"),
+           !COMMON.NAME == "Sikkim Treecreeper" | !group.id %in% c("G4224790","S21504333"),
+           !COMMON.NAME == "Slaty-headed Parakeet" | !group.id %in% c("G1588346"),
+           !COMMON.NAME == "Southern Hill Myna" | !group.id %in% c("G3967773"),
+           !COMMON.NAME == "White-bellied Woodpecker" | !group.id %in% c("G2804044","S37750658"),
+           !COMMON.NAME == "Chestnut-crowned Laughingthrush" | !group.id %in% c("G1098538","G3643918",
+                                                                                "G3665046","S35804354",
+                                                                                "S47949100","S50609308"),
+           !COMMON.NAME == "White-browed Fantail" | !group.id %in% c("S17017380","S22224770",
+                                                                     "S19422597","G1506668")
+    )
+  
+  assign("data",data,.GlobalEnv)
+  
+  rm(list=setdiff(ls(envir = .GlobalEnv), c("data")), pos = ".GlobalEnv")
+  
+  # save workspace
+  save.image("rawdata.RData")
+  rm(data, pos = ".GlobalEnv")
 }
 
 
 ##########################################################################################
 
 
-## requires shapefiles and several packages - path1 = India; path2 = India States; path3 = India Districts
+## requires shapefiles and several packages - path1 = India; path2 = India States; 
+## path3 = India Districts
 ## provide path to folder and name of file within
 
-## this can be edited for more flexibility with grid sizes; current default is 20,40,60,80,320
+## this can be edited for more flexibility with grid sizes; current default is 25,50,100,200
 
 ## current default args are c("India","India_2011","India States","IndiaStates_2011","India Districts","IndiaDistricts_2011")
 
 ## saves a workspace image called "maps.RData"
 
-createmaps = function(g1=20,g2=50,g3=80,g4=100,g5=200,g6=320,path1="India",name1="India_2011",path2="India States",name2="IndiaStates_2011",
-                      path3="India Districts",name3="IndiaDistricts_2011")
+createmaps = function(g1=25,g2=50,g3=100,g4=200,path1="India",name1="India_2011",path2="India States",
+                      name2="IndiaStates_2011",path3="India Districts",name3="IndiaDistricts_2011")
 {
   require(tidyverse)
   require(rgdal)
   require(sp)
+  require(sf)
   
   # reading maps
   
@@ -162,9 +251,11 @@ createmaps = function(g1=20,g2=50,g3=80,g4=100,g5=200,g6=320,path1="India",name1
   cd = ceiling(diff(t(bb))/cs)  # number of cells per direction
   grd = GridTopology(cellcentre.offset=cc, cellsize=cs, cells.dim=cd) # create required grids
   sp_grd = SpatialGridDataFrame(grd, data=data.frame(id=1:prod(cd))) # create spatial grid data frame
-  #nb4g1 = gridIndex2nb(sp_grd, maxdist = sqrt(1), fullMat = TRUE)
-  #nb8g1 = gridIndex2nb(sp_grd, maxdist = sqrt(2), fullMat = TRUE)
+  nb4g1 = gridIndex2nb(sp_grd, maxdist = sqrt(1), fullMat = TRUE) # creates list of neighbours
+  nb8g1 = gridIndex2nb(sp_grd, maxdist = sqrt(2), fullMat = TRUE) # creates list of neighbours
   sp_grd_poly = as(sp_grd, "SpatialPolygonsDataFrame") # SGDF to SPDF
+  assign("nb4g1",nb4g1,.GlobalEnv)
+  assign("nb8g1",nb8g1,.GlobalEnv)
   assign("gridmapg1",sp_grd_poly,.GlobalEnv)
   
   bb = bbox(indiamap)
@@ -206,59 +297,167 @@ createmaps = function(g1=20,g2=50,g3=80,g4=100,g5=200,g6=320,path1="India",name1
   assign("nb8g4",nb8g4,.GlobalEnv)
   assign("gridmapg4",sp_grd_poly,.GlobalEnv)
   
-  bb = bbox(indiamap)
-  cs = c(g5*1000/111111,g5*1000/111111)  # cell size 200km x 200km
-  cc = bb[, 1] + (cs/2)  # cell offset
-  cd = ceiling(diff(t(bb))/cs)  # number of cells per direction
-  grd = GridTopology(cellcentre.offset=cc, cellsize=cs, cells.dim=cd)
-  sp_grd = SpatialGridDataFrame(grd, data=data.frame(id=1:prod(cd)))
-  nb4g5 = gridIndex2nb(sp_grd, maxdist = sqrt(1), fullMat = TRUE)
-  nb8g5 = gridIndex2nb(sp_grd, maxdist = sqrt(2), fullMat = TRUE)
-  sp_grd_poly = as(sp_grd, "SpatialPolygonsDataFrame")
-  assign("nb4g5",nb4g5,.GlobalEnv)
-  assign("nb8g5",nb8g5,.GlobalEnv)
-  assign("gridmapg5",sp_grd_poly,.GlobalEnv)
-  
-  bb = bbox(indiamap)
-  cs = c(g6*1000/111111,g6*1000/111111)  # cell size 320km x 320km
-  cc = bb[, 1] + (cs/2)  # cell offset
-  cd = ceiling(diff(t(bb))/cs)  # number of cells per direction
-  grd = GridTopology(cellcentre.offset=cc, cellsize=cs, cells.dim=cd)
-  sp_grd = SpatialGridDataFrame(grd, data=data.frame(id=1:prod(cd)))
-  nb4g6 = gridIndex2nb(sp_grd, maxdist = sqrt(1), fullMat = TRUE)
-  nb8g6 = gridIndex2nb(sp_grd, maxdist = sqrt(2), fullMat = TRUE)
-  sp_grd_poly = as(sp_grd, "SpatialPolygonsDataFrame")
-  assign("nb4g6",nb4g6,.GlobalEnv)
-  assign("nb8g6",nb8g6,.GlobalEnv)
-  assign("gridmapg6",sp_grd_poly,.GlobalEnv)
-  
-  
-  #indiamap = spTransform(indiamap,CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+  # indiamap = spTransform(indiamap,CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
   # not required here, CRS is NA
   
-
-  assign("gridlevels",c(g1,g2,g3,g4,g5,g6),.GlobalEnv)
+  x = as(indiamap,"sf") %>% sf::st_buffer(dist=0)
+  # to calculate total number of grids of each size
+  c1 = st_intersection(as(gridmapg1,"sf"), x)
+  areag1 = data.frame(id = as.character(c1$id), area = round(st_area(c1)*12345.65))
+  c1 = as(c1,"Spatial")
+  c2 = st_intersection(as(gridmapg2,"sf"), x)
+  areag2 = data.frame(id = as.character(c2$id), area = round(st_area(c2)*12345.65))
+  c2 = as(c2,"Spatial")
+  c3 = st_intersection(as(gridmapg3,"sf"), x)
+  areag3 = data.frame(id = as.character(c3$id), area = round(st_area(c3)*12345.65))
+  c3 = as(c3,"Spatial")
+  c4 = st_intersection(as(gridmapg4,"sf"), x)
+  areag4 = data.frame(id = as.character(c4$id), area = round(st_area(c4)*12345.65))
+  c4 = as(c4,"Spatial")
+  area = round(st_area(x)*12345.65)
   
-  rm(list=setdiff(ls(envir = .GlobalEnv), c("districtmap", "statemap", "indiamap", "gridmapg1", "gridmapg2", 
-                          "gridmapg3", "gridmapg4", "gridmapg5", "gridmapg6", "nb4g2", "nb4g3", 
-                          "nb4g4", "nb4g5", "nb4g6", "nb8g2", "nb8g3", "nb8g4", "nb8g5", "nb8g6",
-                          "gridlevels")), pos = ".GlobalEnv")
+  
+  totalcells = c(length(unique(fortify(c1)$id)),length(unique(fortify(c2)$id)),
+                 length(unique(fortify(c3)$id)),length(unique(fortify(c4)$id)))
+  
+  assign("areag1",areag1,.GlobalEnv)
+  assign("areag2",areag2,.GlobalEnv)
+  assign("areag3",areag3,.GlobalEnv)
+  assign("areag4",areag4,.GlobalEnv)
+  assign("totalcells",totalcells,.GlobalEnv)
+  assign("area",area,.GlobalEnv)
+  assign("gridlevels",c(g1,g2,g3,g4),.GlobalEnv)
+  
+  rm(list=setdiff(ls(envir = .GlobalEnv), c("districtmap", "statemap", "indiamap", "gridmapg1", 
+                                            "gridmapg2", "gridmapg3", "gridmapg4","nb4g1",
+                                            "nb4g2", "nb4g3", "nb4g4", "nb8g1", "nb8g2", "nb8g3", 
+                                            "nb8g4", "totalcells", "gridlevels","area",
+                                            "areag1","areag2","areag3","areag4")), 
+     pos = ".GlobalEnv")
   
   save.image("maps.RData")
   
-  rm(list=setdiff(ls(envir = .GlobalEnv), c("nb4g2", "nb4g3", "nb4g4", 
-                          "nb4g5", "nb4g6", "nb8g2", "nb8g3", "nb8g4", "nb8g5", "nb8g6",
-                          "gridlevels")), pos = ".GlobalEnv")
+  rm(list=setdiff(ls(envir = .GlobalEnv), c("nb4g1", "nb4g2", "nb4g3", "nb4g4", 
+                                            "nb8g1", "nb8g2", "nb8g3", "nb8g4",
+                                            "totalcells","gridlevels","area",
+                                            "areag1","areag2","areag3","areag4")), 
+     pos = ".GlobalEnv")
   
   save.image("neighbours.RData")
   
-  load("maps.RData")
+  load("maps.RData", envir = globalenv())
   
   rm(list=setdiff(ls(envir = .GlobalEnv), c("districtmap", "statemap", "indiamap", "gridmapg1", "gridmapg2", 
-                          "gridmapg3", "gridmapg4", "gridmapg5", "gridmapg6",
-                          "gridlevels")), pos = ".GlobalEnv")
+                                            "gridmapg3", "gridmapg4",
+                                            "totalcells","gridlevels","area",
+                                            "areag1","areag2","areag3","areag4")), 
+     pos = ".GlobalEnv")
   
   save.image("maps.RData")
+  
+  rm(districtmap,statemap,indiamap,gridmapg1,gridmapg2, 
+     gridmapg3,gridmapg4,
+     totalcells,gridlevels,area,
+     areag1, areag2, areag3, areag4, pos = ".GlobalEnv")
+}
+
+
+######################################################################################
+
+
+## prepare data for analyses, add map variables, grids
+## place the 'maps' workspace in working directory
+
+addmapvars = function(datapath = "rawdata.RData", mappath = "maps.RData")
+{
+  require(tidyverse)
+  require(data.table)
+  require(sp)
+  require(rgeos)
+  
+  load(datapath)
+  
+  ## add map details to eBird data
+  
+  load(mappath)
+  
+  # add columns with DISTRICT and ST_NM to main data 
+  
+  temp = data %>% group_by(group.id) %>% slice(1) # same group ID, same grid/district/state 
+  
+  rownames(temp) = temp$group.id # only to setup adding the group.id column for the future left_join
+  coordinates(temp) = ~LONGITUDE + LATITUDE # convert to SPDF?
+  #proj4string(temp) = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  temp = over(temp,districtmap) # returns only ATTRIBUTES of districtmap (DISTRICT and ST_NM)
+  temp = data.frame(temp) # convert into data frame for left_join
+  temp$group.id = rownames(temp) # add column to join with the main data
+  data = left_join(temp,data)
+  
+  
+  # add columns with GRID ATTRIBUTES to main data
+  
+  temp = data %>% group_by(group.id) %>% slice(1)
+  
+  rownames(temp) = temp$group.id
+  coordinates(temp) = ~LONGITUDE + LATITUDE
+  temp = over(temp,gridmapg1)
+  temp = data.frame(temp)
+  temp$group.id = rownames(temp)
+  data = left_join(temp,data)
+  names(data)[1] = "gridg1"
+  
+  temp = data %>% group_by(group.id) %>% slice(1)
+  
+  rownames(temp) = temp$group.id
+  coordinates(temp) = ~LONGITUDE + LATITUDE
+  temp = over(temp,gridmapg2)
+  temp = data.frame(temp)
+  temp$group.id = rownames(temp)
+  data = left_join(temp,data)
+  names(data)[1] = "gridg2"
+  
+  temp = data %>% group_by(group.id) %>% slice(1)
+  
+  rownames(temp) = temp$group.id
+  coordinates(temp) = ~LONGITUDE + LATITUDE
+  temp = over(temp,gridmapg3)
+  temp = data.frame(temp)
+  temp$group.id = rownames(temp)
+  data = left_join(temp,data)
+  names(data)[1] = "gridg3"
+  
+  temp = data %>% group_by(group.id) %>% slice(1)
+  
+  rownames(temp) = temp$group.id
+  coordinates(temp) = ~LONGITUDE + LATITUDE
+  temp = over(temp,gridmapg4)
+  temp = data.frame(temp)
+  temp$group.id = rownames(temp)
+  data = left_join(temp,data)
+  names(data)[1] = "gridg4"
+  
+  ## 
+  
+  assign("area",area,.GlobalEnv)
+  assign("areag1",areag1,.GlobalEnv)
+  assign("areag2",areag2,.GlobalEnv)
+  assign("areag3",areag3,.GlobalEnv)
+  assign("areag4",areag4,.GlobalEnv)
+  assign("totalcells",totalcells,.GlobalEnv)
+  assign("gridlevels",gridlevels,.GlobalEnv)
+  
+  regions = read.csv("districtlist.csv")
+  data = left_join(data,regions)
+  
+  assign("data",data,.GlobalEnv)
+  rm(list=setdiff(ls(envir = .GlobalEnv), c("data", "totalcells", "gridlevels", "area",
+                                            "areag1","areag2","areag3","areag4")), 
+     pos = ".GlobalEnv")
+  
+  save.image("data.RData")
+  rm(data, totalcells, gridlevels, area,
+     areag1, areag2, areag3, areag4, pos = ".GlobalEnv")
+  
 }
 
 
@@ -295,258 +494,6 @@ createmask = function(grid=27,path1="India",name1="India_2011")
   
   rm(list=setdiff(ls(envir = .GlobalEnv), c("mask", "border")), pos = ".GlobalEnv")  
   save.image("mask.RData")
-}
-
-
-######################################################################################
-
-
-## prepare data for spatial analyses, add map variables, grids
-## place the 'maps' workspace in working directory
-
-addmapvars = function(datapath = "data.RData", mappath = "maps.RData", KL = F)
-{
-  require(tidyverse)
-  require(data.table)
-  require(sp)
-  require(rgeos)
-  
-  load(datapath)
-  
-  ## add map details to eBird data
-  
-  load(mappath)
-  
-  if(KL)
-  {
-    data = KLnonatlas
-    data1 = KLatlas
-    
-    # add columns with DISTRICT and ST_NM to main data 
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1) # same group ID, same grid/district/state 
-    
-    rownames(temp) = temp$group.id # only to setup adding the group.id column for the future left_join
-    coordinates(temp) = ~LONGITUDE + LATITUDE # convert to SPDF?
-    #proj4string(temp) = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-    temp = over(temp,districtmap) # returns only ATTRIBUTES of districtmap (DISTRICT and ST_NM)
-    temp = data.frame(temp) # convert into data frame for left_join
-    temp$group.id = rownames(temp) # add column to join with the main data
-    data1 = left_join(temp,data1)
-    
-    
-    # add columns with GRID ATTRIBUTES to main data
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1)
-    
-    rownames(temp) = temp$group.id
-    coordinates(temp) = ~LONGITUDE + LATITUDE
-    temp = over(temp,gridmapg1)
-    temp = data.frame(temp)
-    temp$group.id = rownames(temp)
-    data1 = left_join(temp,data1)
-    names(data1)[1] = "gridg1"
-    #data1$gridg1 = as.factor(data1$gridg1)
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1)
-    
-    rownames(temp) = temp$group.id
-    coordinates(temp) = ~LONGITUDE + LATITUDE
-    temp = over(temp,gridmapg2)
-    temp = data.frame(temp)
-    temp$group.id = rownames(temp)
-    data1 = left_join(temp,data1)
-    names(data1)[1] = "gridg2"
-    #data1$gridg2 = as.factor(data1$gridg2)
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1)
-    
-    rownames(temp) = temp$group.id
-    coordinates(temp) = ~LONGITUDE + LATITUDE
-    temp = over(temp,gridmapg3)
-    temp = data.frame(temp)
-    temp$group.id = rownames(temp)
-    data1 = left_join(temp,data1)
-    names(data1)[1] = "gridg3"
-    #data1$gridg3 = as.factor(data1$gridg3)
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1)
-    
-    rownames(temp) = temp$group.id
-    coordinates(temp) = ~LONGITUDE + LATITUDE
-    temp = over(temp,gridmapg4)
-    temp = data.frame(temp)
-    temp$group.id = rownames(temp)
-    data1 = left_join(temp,data1)
-    names(data1)[1] = "gridg4"
-    #data1$gridg4 = as.factor(data1$gridg4)
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1)
-    
-    rownames(temp) = temp$group.id
-    coordinates(temp) = ~LONGITUDE + LATITUDE
-    temp = over(temp,gridmapg5)
-    temp = data.frame(temp)
-    temp$group.id = rownames(temp)
-    data1 = left_join(temp,data1)
-    names(data1)[1] = "gridg5"
-    #data1$gridg5 = as.factor(data1$gridg5)
-    
-    temp = data1 %>% group_by(group.id) %>% slice(1)
-    
-    rownames(temp) = temp$group.id
-    coordinates(temp) = ~LONGITUDE + LATITUDE
-    temp = over(temp,gridmapg6)
-    temp = data.frame(temp)
-    temp$group.id = rownames(temp)
-    data1 = left_join(temp,data1)
-    names(data1)[1] = "gridg6"
-    #data1$gridg6 = as.factor(data1$gridg6)
-    
-    ## 
-    
-    ## move personal locations to nearest hotspots
-    
-    allhotspots = data1 %>% filter(LOCALITY.TYPE == "H") %>%
-      group_by(LOCALITY.ID) %>% summarize(max(LATITUDE),max(LONGITUDE)) %>% # get lat long for each hotspot
-      ungroup
-    
-    names(allhotspots)[c(2,3)] = c("LATITUDE","LONGITUDE")
-    
-    # using DATA TABLES below
-    
-    setDT(data1) # useful for extremely large data frames as each object will then be modified in place without creating 
-    # a copy, creates a 'reference' apparently; this will considerably reduce RAM usage 
-    hotspots = as.matrix(allhotspots[, 3:2])
-    
-    # again 'refernce' based, choosing nearest hotspots to each location
-    data1[, LOCALITY.HOTSPOT := allhotspots[which.min(spDists(x = hotspots, y = cbind(LONGITUDE, LATITUDE))),]$LOCALITY.ID, by=.(LONGITUDE, LATITUDE)] 
-    data1 = as.data.frame(data1) # back into dataframe
-  }
-  
-  # add columns with DISTRICT and ST_NM to main data 
-  
-  temp = data %>% group_by(group.id) %>% slice(1) # same group ID, same grid/district/state 
-  
-  rownames(temp) = temp$group.id # only to setup adding the group.id column for the future left_join
-  coordinates(temp) = ~LONGITUDE + LATITUDE # convert to SPDF?
-  #proj4string(temp) = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-  temp = over(temp,districtmap) # returns only ATTRIBUTES of districtmap (DISTRICT and ST_NM)
-  temp = data.frame(temp) # convert into data frame for left_join
-  temp$group.id = rownames(temp) # add column to join with the main data
-  data = left_join(temp,data)
-  
-  
-  # add columns with GRID ATTRIBUTES to main data
-  
-  temp = data %>% group_by(group.id) %>% slice(1)
-  
-  rownames(temp) = temp$group.id
-  coordinates(temp) = ~LONGITUDE + LATITUDE
-  temp = over(temp,gridmapg1)
-  temp = data.frame(temp)
-  temp$group.id = rownames(temp)
-  data = left_join(temp,data)
-  names(data)[1] = "gridg1"
-  #data$gridg1 = as.factor(data$gridg1)
-  
-  temp = data %>% group_by(group.id) %>% slice(1)
-  
-  rownames(temp) = temp$group.id
-  coordinates(temp) = ~LONGITUDE + LATITUDE
-  temp = over(temp,gridmapg2)
-  temp = data.frame(temp)
-  temp$group.id = rownames(temp)
-  data = left_join(temp,data)
-  names(data)[1] = "gridg2"
-  #data$gridg2 = as.factor(data$gridg2)
-  
-  temp = data %>% group_by(group.id) %>% slice(1)
-  
-  rownames(temp) = temp$group.id
-  coordinates(temp) = ~LONGITUDE + LATITUDE
-  temp = over(temp,gridmapg3)
-  temp = data.frame(temp)
-  temp$group.id = rownames(temp)
-  data = left_join(temp,data)
-  names(data)[1] = "gridg3"
-  #data$gridg3 = as.factor(data$gridg3)
-  
-  temp = data %>% group_by(group.id) %>% slice(1)
-  
-  rownames(temp) = temp$group.id
-  coordinates(temp) = ~LONGITUDE + LATITUDE
-  temp = over(temp,gridmapg4)
-  temp = data.frame(temp)
-  temp$group.id = rownames(temp)
-  data = left_join(temp,data)
-  names(data)[1] = "gridg4"
-  #data$gridg4 = as.factor(data$gridg4)
-  
-  temp = data %>% group_by(group.id) %>% slice(1)
-  
-  rownames(temp) = temp$group.id
-  coordinates(temp) = ~LONGITUDE + LATITUDE
-  temp = over(temp,gridmapg5)
-  temp = data.frame(temp)
-  temp$group.id = rownames(temp)
-  data = left_join(temp,data)
-  names(data)[1] = "gridg5"
-  #data$gridg5 = as.factor(data$gridg5)
-  
-  temp = data %>% group_by(group.id) %>% slice(1)
-  
-  rownames(temp) = temp$group.id
-  coordinates(temp) = ~LONGITUDE + LATITUDE
-  temp = over(temp,gridmapg6)
-  temp = data.frame(temp)
-  temp$group.id = rownames(temp)
-  data = left_join(temp,data)
-  names(data)[1] = "gridg6"
-  #data$gridg6 = as.factor(data$gridg6)
-  
-  ## 
-  
-  if(KL)
-  {
-    ## move personal locations to nearest hotspots
-    
-    allhotspots = data %>% filter(LOCALITY.TYPE == "H") %>%
-      group_by(LOCALITY.ID) %>% summarize(max(LATITUDE),max(LONGITUDE)) %>% # get lat long for each hotspot
-      ungroup
-    
-    names(allhotspots)[c(2,3)] = c("LATITUDE","LONGITUDE")
-    
-    # using DATA TABLES below
-    
-    setDT(data) # useful for extremely large data frames as each object will then be modified in place without creating 
-    # a copy, creates a 'reference' apparently; this will considerably reduce RAM usage 
-    hotspots = as.matrix(allhotspots[, 3:2])
-    
-    # again 'refernce' based, choosing nearest hotspots to each location
-    data[, LOCALITY.HOTSPOT := allhotspots[which.min(spDists(x = hotspots, y = cbind(LONGITUDE, LATITUDE))),]$LOCALITY.ID, by=.(LONGITUDE, LATITUDE)] 
-    data = as.data.frame(data) # back into dataframe
-  }
-  
-  assign("gridlevels",gridlevels,.GlobalEnv)
-
-  if(!isTRUE(KL))
-  {
-    assign("data",data,.GlobalEnv)
-    rm(list=setdiff(ls(envir = .GlobalEnv), c("data", "gridlevels")), pos = ".GlobalEnv")
-    
-    save.image("dataforspatialanalyses.RData")
-  }
-  
-  if(KL)
-  {
-    assign("KLatlas",data1,.GlobalEnv)
-    assign("KLnonatlas",data,.GlobalEnv)
-    rm(list=setdiff(ls(envir = .GlobalEnv), c("KLatlas", "KLnonatlas", "gridlevels")), pos = ".GlobalEnv")
-    
-    save.image("KLforspatialanalyses.RData")
-  }
-
 }
 
 
